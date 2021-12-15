@@ -31,7 +31,7 @@ import collections
 
 from pathlib import Path
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 FIGLET = f"""\
  __               _____  __         ___ __           __
 |  |.-----.-----.|  |  ||__|______.'  _|__|.-----.--|  |.-----.----.
@@ -52,7 +52,7 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 # Java Archive Extensions and zip
-JAR_EXTENSIONS = (".jar", ".war", ".ear", ".zip")
+ZIP_EXTENSIONS = (".jar", ".war", ".ear", ".zip")
 
 # Tar extensions
 TAR_EXTENSIONS = (".gz", ".tar")
@@ -112,7 +112,7 @@ def iter_scandir(path, stats=None):
                 continue
             elif entry.is_file():
                 name = entry.name.lower()
-                if name.endswith(JAR_EXTENSIONS):
+                if name.endswith(ZIP_EXTENSIONS):
                     yield Path(entry.path)
                 elif name.endswith(TAR_EXTENSIONS):
                     yield Path(entry.path)
@@ -139,9 +139,9 @@ def scantree(path, stats=None):
         log.debug(e)
 
 
-def iter_jarfile(fobj, parents=None, stats=None):
+def iter_zipfile(fobj, parents=None, stats=None):
     """
-    Yields (zfile, zinfo, zpath, parents) for each file in zipfile that matches `FILENAMES` or `JAR_EXTENSIONS` (recursively)
+    Yields (zfile, zinfo, zpath, parents) for each file in zipfile that matches `FILENAMES` or `ZIP_EXTENSIONS` (recursively)
     """
     parents = parents or []
     try:
@@ -151,8 +151,8 @@ def iter_jarfile(fobj, parents=None, stats=None):
                 zpath = Path(zinfo.filename)
                 if zpath.name.lower() in FILENAMES:
                     yield (zinfo, zfile, zpath, parents)
-                elif zpath.name.lower().endswith(JAR_EXTENSIONS):
-                    yield from iter_jarfile(
+                elif zpath.name.lower().endswith(ZIP_EXTENSIONS):
+                    yield from iter_zipfile(
                         zfile.open(zinfo.filename), parents=parents + [zpath]
                     )
     except IOError as e:
@@ -289,11 +289,11 @@ def main():
                 log.info(f"Found file: {p}")
                 with p.open("rb") as fobj:
                     check_vulnerable(fobj, [p], stats)
-            if p.suffix.lower() in JAR_EXTENSIONS:
+            if p.suffix.lower() in ZIP_EXTENSIONS:
                 try:
                     log.info(f"Found jar file: {p}")
                     stats["scanned"] += 1
-                    for (zinfo, zfile, zpath, parents) in iter_jarfile(p.resolve().open("rb"), parents=[p.resolve()]):
+                    for (zinfo, zfile, zpath, parents) in iter_zipfile(p.resolve().open("rb"), parents=[p.resolve()]):
                         log.info(f"Found zfile: {zinfo} ({parents}")
                         with zfile.open(zinfo.filename) as zf:
                             check_vulnerable(zf, parents + [zpath], stats)
