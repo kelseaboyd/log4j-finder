@@ -20,6 +20,7 @@ import io
 import sys
 import time
 import zipfile
+import tarfile
 import logging
 import argparse
 import hashlib
@@ -50,8 +51,11 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
-# Java Archive Extensions
-JAR_EXTENSIONS = (".jar", ".war", ".ear")
+# Java Archive Extensions and zip
+JAR_EXTENSIONS = (".jar", ".war", ".ear", ".zip")
+
+# Tar extensions
+TAR_EXTENSIONS = (".gz", ".tar")
 
 # Filenames to find and MD5 hash (also recursively in JAR_EXTENSIONS)
 # Currently we just look for JndiManager.class
@@ -110,6 +114,8 @@ def iter_scandir(path, stats=None):
                 name = entry.name.lower()
                 if name.endswith(JAR_EXTENSIONS):
                     yield Path(entry.path)
+                elif name.endswith(TAR_EXTENSIONS):
+                    yield Path(entry.path)
                 elif name in FILENAMES:
                     yield Path(entry.path)
     except IOError as e:
@@ -154,6 +160,26 @@ def iter_jarfile(fobj, parents=None, stats=None):
     except zipfile.BadZipFile as e:
         log.debug(f"{fobj}: {e}")
 
+
+def iter_tarfile(fobj, parents=None, stats=None):
+    """
+    Yields (tfile, tinfo, tpath, parents) for each file in tarfile that matches `FILENAMES` or `TAR_EXTENSIONS` (recursively)
+    """
+    parents = parents or []
+    try:
+        with tarfile.open(fileobj=fobj) as tfile:
+            for tinfo in tfile.getmembers():
+                tpath = Path(tinfo.name)
+                if tpath.name.lower() in FILENAMES:
+                    yield (tinfo, tfile, tpath, parents)
+                elif tpath.name.lower().endswith(TAR_EXTENSIONS):
+                    yield from iter_tarfile(
+                        tfile.extractfile(tinfo.name), parents=parents + [tpath]
+                    ) 
+    except IOError as e:
+        log.debug(f"{fobj}: {e}")
+    except tarfile.TarError as e:
+        log.debug(f"{fobj}: {e}")
 
 def red(s):
     if NO_COLOR:
@@ -267,12 +293,20 @@ def main():
                 try:
                     log.info(f"Found jar file: {p}")
                     stats["scanned"] += 1
-                    for (zinfo, zfile, zpath, parents) in iter_jarfile(
-                        p.resolve().open("rb"), parents=[p.resolve()]
-                    ):
+                    for (zinfo, zfile, zpath, parents) in iter_jarfile(p.resolve().open("rb"), parents=[p.resolve()]):
                         log.info(f"Found zfile: {zinfo} ({parents}")
                         with zfile.open(zinfo.filename) as zf:
                             check_vulnerable(zf, parents + [zpath], stats)
+                except IOError as e:
+                    log.debug(f"{p}: {e}", e)
+            if p.suffix.lower() in TAR_EXTENSIONS:
+                try:
+                    log.info(f"Found tar file: {p}")
+                    stats["scanned"] += 1
+                    for (tinfo, tfile, tpath, parents) in iter_tarfile(p.resolve().open("rb"), parents=[p.resolve()]):
+                        log.info(f"Found zfile: {tinfo} ({parents}")
+                        with tfile.extractfile(tinfo.name) as tf:
+                            check_vulnerable(tf, parents + [tpath], stats)
                 except IOError as e:
                     log.debug(f"{p}: {e}", e)
 
