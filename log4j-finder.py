@@ -302,7 +302,7 @@ def main():
                     fobj = pres.open("rb")
                     for (zinfo, zfile, zpath, parents) in iter_zipfile(fobj, parents=[pres]) if p.suffix.lower() in ZIP_EXTENSIONS else iter_tarfile(fobj, parents=[pres]):
                         log.info(f"Found zfile: {zinfo} ({parents}")
-                        with zfile.open(zinfo.filename) as zf:
+                        with zfile.extractfile(zinfo.name) if isinstance(zinfo, tarfile.TarInfo) else zfile.open(zinfo.filename) as zf:
                             check_vulnerable(zf, parents + [zpath], stats)
                 except IOError as e:
                     log.debug(f"{p}: {e}", e)
