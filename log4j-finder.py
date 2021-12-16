@@ -55,9 +55,9 @@ log = logging.getLogger(__name__)
 ZIP_EXTENSIONS = (".jar", ".war", ".ear", ".zip")
 
 # Tar extensions
-TAR_EXTENSIONS = (".gz", ".tar")
+TAR_EXTENSIONS = (".gz", ".tar", ".tgz")
 
-# Filenames to find and MD5 hash (also recursively in JAR_EXTENSIONS)
+# Filenames to find and MD5 hash (also recursively in ZIP_EXTENSIONS and TAR_EXTENSIONS)
 # Currently we just look for JndiManager.class
 FILENAMES = [
     p.lower()
@@ -99,7 +99,7 @@ def md5_digest(fobj):
 
 def iter_scandir(path, stats=None):
     """
-    Yields all files matcthing JAR_EXTENSIONS or FILENAMES recursively in path
+    Yields all files matcthing ZIP_EXTENSIONS, TAR_EXTENSIONS or FILENAMES recursively in path
     """
     p = Path(path)
     if p.is_file():
@@ -163,7 +163,7 @@ def iter_zipfile(fobj, parents=None, stats=None):
 
 def iter_tarfile(fobj, parents=None, stats=None):
     """
-    Yields (tfile, tinfo, tpath, parents) for each file in tarfile that matches `FILENAMES` or `TAR_EXTENSIONS` (recursively)
+    Yields (tfile, tinfo, tpath, parents) for each file in tarfile that matches `FILENAMES` or `TAR_EXTENSIONS` or `ZIP_EXTENSIONS` (recursively)
     """
     parents = parents or []
     try:
@@ -175,11 +175,16 @@ def iter_tarfile(fobj, parents=None, stats=None):
                 elif tpath.name.lower().endswith(TAR_EXTENSIONS):
                     yield from iter_tarfile(
                         tfile.extractfile(tinfo.name), parents=parents + [tpath]
-                    ) 
+                    )
+                elif tpath.name.lower().endswith(ZIP_EXTENSIONS):
+                    yield from iter_zipfile(
+                        tfile.extractfile(tinfo.name), parents=parents + [tpath]
+                    )
     except IOError as e:
         log.debug(f"{fobj}: {e}")
     except tarfile.TarError as e:
         log.debug(f"{fobj}: {e}")
+
 
 def red(s):
     if NO_COLOR:
@@ -289,24 +294,16 @@ def main():
                 log.info(f"Found file: {p}")
                 with p.open("rb") as fobj:
                     check_vulnerable(fobj, [p], stats)
-            if p.suffix.lower() in ZIP_EXTENSIONS:
+            if p.suffix.lower() in ZIP_EXTENSIONS or TAR_EXTENSIONS:
                 try:
-                    log.info(f"Found jar file: {p}")
+                    log.info(f"Found {p.suffix} file: {p}")
                     stats["scanned"] += 1
-                    for (zinfo, zfile, zpath, parents) in iter_zipfile(p.resolve().open("rb"), parents=[p.resolve()]):
+                    pres = p.resolve()
+                    fobj = pres.open("rb")
+                    for (zinfo, zfile, zpath, parents) in iter_zipfile(fobj, parents=[pres]) if p.suffix.lower() in ZIP_EXTENSIONS else iter_tarfile(fobj, parents=[pres]):
                         log.info(f"Found zfile: {zinfo} ({parents}")
                         with zfile.open(zinfo.filename) as zf:
                             check_vulnerable(zf, parents + [zpath], stats)
-                except IOError as e:
-                    log.debug(f"{p}: {e}", e)
-            if p.suffix.lower() in TAR_EXTENSIONS:
-                try:
-                    log.info(f"Found tar file: {p}")
-                    stats["scanned"] += 1
-                    for (tinfo, tfile, tpath, parents) in iter_tarfile(p.resolve().open("rb"), parents=[p.resolve()]):
-                        log.info(f"Found zfile: {tinfo} ({parents}")
-                        with tfile.extractfile(tinfo.name) as tf:
-                            check_vulnerable(tf, parents + [tpath], stats)
                 except IOError as e:
                     log.debug(f"{p}: {e}", e)
 
